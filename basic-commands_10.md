@@ -1,6 +1,4 @@
 
----
-
 # 📘 Конспект: Установка и настройка nginx + PHP-FPM + WordPress
 
 > **Развёртывание полноценного веб-сайта на WordPress с использованием стека LEMP (Linux, nginx, MariaDB, PHP).**
