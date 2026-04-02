@@ -1,438 +1,336 @@
-# 📘 Конспект: Логирование и мониторинг в Linux
 
-> **Часть II завершающая:** Мониторинг веб-сервера nginx, системный журнал journalctl и анализ логов.
+---
+
+# 📘 Конспект: Установка и настройка nginx + PHP-FPM + WordPress
+
+> **Развёртывание полноценного веб-сайта на WordPress с использованием стека LEMP (Linux, nginx, MariaDB, PHP).**
 
 ## 📋 Содержание
 
-1. [Зачем следить за логами](#1-зачем-следить-за-логами)
-2. [Системный журнал: journalctl](#2-системный-журнал-journalctl)
-   - [Приоритеты сообщений](#приоритеты-сообщений)
-   - [Основные команды](#основные-команды-journalctl)
-   - [Постоянное ограничение размера](#постоянное-ограничение-размера)
-3. [Логи nginx](#3-логи-nginx)
-   - [Где лежат логи](#где-лежат-логи)
-   - [Формат access.log](#формат-accesslog)
-   - [Формат error.log](#формат-errorlog)
-4. [Анализ access.log с помощью coreutils](#4-анализ-accesslog-с-помощью-coreutils)
-   - [Количество запросов](#количество-запросов)
-   - [Топ IP-адресов](#топ-ip-адресов)
-   - [Распределение по кодам ответа](#распределение-по-кодам-ответа)
-   - [Найти все ошибки 404](#найти-все-ошибки-404)
-   - [Найти серверные ошибки (500)](#найти-серверные-ошибки-500)
-   - [Самые популярные страницы](#самые-популярные-страницы)
-   - [Запросы за последний час](#запросы-за-последний-час)
-   - [Найти ботов](#найти-ботов)
-5. [Анализ error.log](#5-анализ-errorlog)
-   - [Типичные ошибки](#типичные-ошибки)
-   - [Команды для анализа](#команды-для-анализа-errorlog)
-6. [Ротация логов (logrotate)](#6-ротация-логов-logrotate)
-   - [Зачем нужна ротация](#зачем-нужна-ротация)
-   - [Конфигурация для nginx](#конфигурация-для-nginx)
-   - [Основные директивы](#основные-директивы)
-   - [Структура после ротации](#структура-после-ротации)
-7. [Практика: анализируем логи WordPress](#7-практика-анализируем-логи-wordpress)
-   - [Шаг 1. Смотрим системный журнал](#шаг-1-смотрим-системный-журнал)
-   - [Шаг 2. Генерируем трафик для анализа](#шаг-2-генерируем-трафик-для-анализа)
-   - [Шаг 3. Анализируем access.log](#шаг-3-анализируем-accesslog)
-   - [Шаг 4. Проверяем error.log](#шаг-4-проверяем-errorlog)
-   - [Шаг 5. Проверяем ротацию](#шаг-5-проверяем-ротацию)
-8. [Справочник команд](#8-справочник-команд)
-   - [journalctl](#journalctl)
-   - [Анализ логов nginx](#анализ-логов-nginx)
-9. [Итоги](#9-итоги)
+- [1. Архитектура решения](#1-архитектура-решения)
+- [2. Клиент-серверная модель и HTTP](#2-клиент-серверная-модель-и-http)
+  - [Основные компоненты HTTP-запроса](#основные-компоненты-http-запроса)
+  - [Основные коды HTTP-ответа](#основные-коды-http-ответа)
+- [3. Установка и настройка nginx](#3-установка-и-настройка-nginx)
+  - [Установка](#установка-nginx)
+  - [Проверка](#проверка-nginx)
+  - [Структура каталогов](#структура-каталогов-nginx)
+  - [Настройка серверного блока для WordPress](#настройка-серверного-блока-для-wordpress)
+  - [Активация сайта](#активация-сайта)
+- [4. Установка PHP-FPM](#4-установка-php-fpm)
+  - [Установка PHP и модулей](#установка-php-и-модулей)
+  - [Проверка статуса](#проверка-статуса-php)
+  - [Взаимодействие nginx и PHP-FPM](#взаимодействие-nginx-и-php-fpm)
+  - [Тест PHP](#тест-php)
+- [5. Установка и настройка MariaDB](#5-установка-и-настройка-mariadb)
+  - [Установка и защита](#установка-и-защита-mariadb)
+  - [Создание базы данных и пользователя](#создание-базы-данных-и-пользователя)
+- [6. Установка и настройка WordPress](#6-установка-и-настройка-wordpress)
+  - [Скачивание и распаковка](#скачивание-и-распаковка)
+  - [Настройка прав доступа](#настройка-прав-доступа-wordpress)
+  - [Настройка wp-config.php](#настройка-wp-configphp)
+- [7. Справочник команд](#7-справочник-команд)
+  - [nginx](#nginx-команды)
+  - [PHP-FPM](#php-fpm-команды)
+  - [MariaDB](#mariadb-команды)
+  - [WordPress](#wordpress-команды)
+- [8. Итоги](#8-итоги)
 
 ---
 
-## 1. Зачем следить за логами
+## 1. Архитектура решения
 
-Сервер работает круглосуточно, и вы не можете наблюдать за ним каждую секунду. **Логи — это глаза и уши администратора.**
+Все компоненты работают на одном сервере. Nginx выступает в роли «привратника», раздавая статику и проксируя динамические запросы к PHP-FPM.
 
-Без логов невозможно:
-
-- понять, почему пользователь видит ошибку 500;
-- найти, кто сканирует сервер в поисках уязвимостей;
-- выяснить, когда и почему «упал» сайт;
-- оценить нагрузку — сколько запросов в час получает сервер.
-
----
-
-## 2. Системный журнал: journalctl
-
-### Приоритеты сообщений
-
-Каждое сообщение в журнале имеет **приоритет** — уровень важности.
-
-| Приоритет | Номер | Описание |
-|-----------|-------|----------|
-| `emerg` | 0 | Система неработоспособна |
-| `alert` | 1 | Требуется немедленное вмешательство |
-| `crit` | 2 | Критическая ошибка |
-| `err` | 3 | Ошибка |
-| `warning` | 4 | Предупреждение |
-| `notice` | 5 | Важное информационное сообщение |
-| `info` | 6 | Информационное сообщение |
-| `debug` | 7 | Отладочная информация |
-
-### Основные команды journalctl
-
-```bash
-# Фильтрация по приоритету
-journalctl -p err                    # только ошибки и критичнее
-journalctl -p warning                # предупреждения и критичнее
-journalctl -p err --since today      # ошибки за сегодня
-
-# Логи текущей загрузки
-journalctl -b                        # логи с момента загрузки
-journalctl -b -p err                 # ошибки с момента загрузки
-
-# Логи конкретного сервиса
-journalctl -u nginx                  # только логи nginx
-journalctl -u php8.1-fpm             # только логи PHP-FPM
-journalctl -u mariadb                # только логи MariaDB
-
-# За временной промежуток
-journalctl --since "2026-04-01 10:00:00"
-journalctl --since "1 hour ago"
-journalctl --since yesterday --until today
-
-# Размер журнала и управление
-journalctl --disk-usage              # сколько места занимает
-sudo journalctl --vacuum-size=500M   # оставить не более 500 МБ
-sudo journalctl --vacuum-time=7d     # удалить записи старше 7 дней
-```
-
-### Постоянное ограничение размера
-
-Отредактируйте файл `/etc/systemd/journald.conf`:
-
-```ini
-SystemMaxUse=500M
-```
-
-После изменений перезапустите службу:
-```bash
-sudo systemctl restart systemd-journald
+```text
+Браузер (Клиент)
+    │ (HTTP-запрос)
+    ▼
+  nginx (Веб-сервер, порт 80)
+    │
+    ├── Статика (.html, .css, .js) → Отдаёт сам
+    │
+    └── Динамика (.php) → Проксирует в PHP-FPM
+                              │
+                              ▼
+                          PHP-FPM (Обработчик)
+                              │
+                              ▼
+                          WordPress (PHP-код)
+                              │
+                              ▼
+                          MariaDB (База данных)
 ```
 
 ---
 
-## 3. Логи nginx
+## 2. Клиент-серверная модель и HTTP
 
-### Где лежат логи
+- **Клиент** (браузер) инициирует общение (запрос).
+- **Сервер** (nginx) обрабатывает запрос и возвращает ответ.
 
-| Файл | Содержание |
-|------|-----------|
-| `/var/log/nginx/access.log` | Каждый HTTP-запрос к серверу |
-| `/var/log/nginx/error.log` | Ошибки nginx и PHP-FPM |
+### Основные компоненты HTTP-запроса
 
-### Формат access.log (combined)
+| Компонент | Пример | Назначение |
+|-----------|--------|------------|
+| Метод | `GET`, `POST` | Действие (получить / отправить) |
+| URL | `/about`, `/wp-login.php` | Какой ресурс запрашивают |
+| Заголовки | `Host`, `User-Agent` | Дополнительная информация |
 
-```
-192.168.1.50 - - [17/Mar/2026:10:15:32 +0300] "GET /wp-login.php HTTP/1.1" 200 4523 "-" "Mozilla/5.0"
-```
+### Основные коды HTTP-ответа
 
-| # | Поле | Пример | Значение |
-|---|------|--------|----------|
-| 1 | IP-адрес клиента | `192.168.1.50` | Кто обратился |
-| 2 | Идентификатор | `-` | Обычно пустой |
-| 3 | Пользователь | `-` | Имя (при HTTP-авторизации) |
-| 4 | Дата и время | `[17/Mar/2026:10:15:32 +0300]` | Когда |
-| 5 | Запрос | `"GET /wp-login.php HTTP/1.1"` | Метод, URL, протокол |
-| 6 | Код ответа | `200` | Результат |
-| 7 | Размер ответа | `4523` | В байтах |
-| 8 | Referrer | `"-"` | Откуда пришёл пользователь |
-| 9 | User-Agent | `"Mozilla/5.0 ..."` | Браузер или бот |
-
-### Формат error.log
-
-```
-2026/03/17 10:20:45 [error] 1234#1234: *5 open() "/var/www/wordpress/favicon.ico" failed (2: No such file or directory), client: 192.168.1.50, server: _, request: "GET /favicon.ico HTTP/1.1"
-```
+| Код | Значение | Когда возникает |
+|-----|----------|-----------------|
+| `200` | OK | Успешный запрос |
+| `301` | Moved Permanently | Постоянный редирект |
+| `403` | Forbidden | Доступ запрещён |
+| `404` | Not Found | Страница не найдена |
+| `500` | Internal Server Error | Ошибка на сервере (часто связана с PHP) |
 
 ---
 
-## 4. Анализ access.log с помощью coreutils
+## 3. Установка и настройка nginx
 
-### Количество запросов
-
-```bash
-sudo wc -l /var/log/nginx/access.log
-```
-
-### Топ IP-адресов
-
-Кто чаще всего обращается к серверу:
+### Установка nginx
 
 ```bash
-sudo awk '{print $1}' /var/log/nginx/access.log | sort | uniq -c | sort -rn | head
+sudo apt update
+sudo apt install nginx -y
 ```
 
-**Результат:**
-```
-    342 192.168.1.50
-    128 10.0.0.5
-     45 192.168.1.1
-```
-
-### Распределение по кодам ответа
+### Проверка nginx
 
 ```bash
-sudo awk '{print $9}' /var/log/nginx/access.log | sort | uniq -c | sort -rn
+systemctl status nginx          # Статус сервиса
+curl http://localhost           # Должна открыться welcome-страница
+sudo ss -tlnp | grep :80        # Проверка прослушивания порта
 ```
 
-**Результат:**
-```
-    412 200
-     23 301
-     15 404
-      3 500
-```
+### Структура каталогов nginx
 
-### Найти все ошибки 404
+| Каталог | Назначение |
+|:---|:---|
+| `/etc/nginx/nginx.conf` | Главный конфигурационный файл |
+| `/etc/nginx/sites-available/` | Хранилище конфигураций сайтов |
+| `/etc/nginx/sites-enabled/` | Символические ссылки на активные конфигурации |
+| `/var/www/html/` | Стандартная корневая директория (по умолчанию) |
+| `/var/log/nginx/` | Логи доступа и ошибок |
+
+### Настройка серверного блока для WordPress
+
+**Создаём директорию сайта:**
 
 ```bash
-# Какие страницы вызывают 404
-sudo awk '$9 == 404 {print $7}' /var/log/nginx/access.log | sort | uniq -c | sort -rn
-
-# Полные строки с 404
-sudo grep '" 404 ' /var/log/nginx/access.log
+sudo mkdir -p /var/www/wordpress
+sudo chown -R $USER:$USER /var/www/wordpress
 ```
 
-### Найти серверные ошибки (500)
+**Создаём конфигурацию `/etc/nginx/sites-available/wordpress`:**
 
-```bash
-sudo grep '" 500 ' /var/log/nginx/access.log
-```
+```nginx
+server {
+    listen 80;
+    server_name _; # Замените на ваш домен или IP
 
-### Самые популярные страницы
+    root /var/www/wordpress;
+    index index.php index.html;
 
-```bash
-sudo awk '{print $7}' /var/log/nginx/access.log | sort | uniq -c | sort -rn | head
-```
+    location / {
+        try_files $uri $uri/ /index.php?$args; # Красивые URL для WP
+    }
 
-### Запросы за последний час
+    location ~ \.php$ {
+        include snippets/fastcgi-php.conf;
+        fastcgi_pass unix:/run/php/php-fpm.sock; # Связь с PHP-FPM
+    }
 
-```bash
-sudo awk -v d="$(date -d '1 hour ago' '+%d/%b/%Y:%H')" '$4 ~ d' /var/log/nginx/access.log | wc -l
-```
-
-### Найти ботов
-
-```bash
-sudo grep -i 'bot\|crawl\|spider' /var/log/nginx/access.log | awk '{print $1}' | sort -u
-```
-
----
-
-## 5. Анализ error.log
-
-### Типичные ошибки
-
-| Ошибка | Причина |
-|--------|---------|
-| `No such file or directory` | Запрошенный файл не существует (404) |
-| `Permission denied` | Нет прав на чтение файла |
-| `upstream timed out` | PHP-FPM не ответил вовремя |
-| `connect() failed` | PHP-FPM не запущен или сокет недоступен |
-| `Primary script unknown` | PHP-файл не найден |
-| `FastCGI sent in stderr` | Ошибка в PHP-скрипте |
-
-### Команды для анализа error.log
-
-```bash
-# Последние ошибки
-sudo tail -20 /var/log/nginx/error.log
-
-# Поиск по типу
-sudo grep 'Permission denied' /var/log/nginx/error.log
-sudo grep 'upstream' /var/log/nginx/error.log
-
-# Ошибки за сегодня
-sudo grep "$(date '+%Y/%m/%d')" /var/log/nginx/error.log
-
-# Ошибки PHP
-sudo grep 'PHP' /var/log/nginx/error.log
-```
-
-> **Совет:** Если сайт показывает ошибку 502 Bad Gateway, первое, что нужно проверить — работает ли PHP-FPM (`systemctl status php*-fpm`) и нет ли ошибок про `upstream` в error.log.
-
----
-
-## 6. Ротация логов (logrotate)
-
-### Зачем нужна ротация
-
-Логи растут непрерывно. **Ротация логов** решает эту проблему: старый лог архивируется (сжимается), создаётся новый пустой файл, а самые старые архивы удаляются.
-
-### Конфигурация для nginx
-
-```bash
-cat /etc/logrotate.d/nginx
-```
-
-```
-/var/log/nginx/*.log {
-    daily
-    missingok
-    rotate 14
-    compress
-    delaycompress
-    notifempty
-    create 0640 www-data adm
-    sharedscripts
-    postrotate
-        if [ -d /etc/nginx ]; then
-            invoke-rc.d nginx rotate >/dev/null 2>&1
-        fi
-    endscript
+    location ~ /\.ht {
+        deny all; # Запрет доступа к .htaccess
+    }
 }
 ```
 
-### Основные директивы
-
-| Директива | Значение |
-|-----------|----------|
-| `daily` | Ротация раз в день |
-| `weekly` | Ротация раз в неделю |
-| `monthly` | Ротация раз в месяц |
-| `rotate 14` | Хранить 14 архивов (2 недели) |
-| `compress` | Сжимать старые логи (gzip) |
-| `delaycompress` | Не сжимать самый свежий архив |
-| `notifempty` | Не ротировать пустые файлы |
-| `missingok` | Не выдавать ошибку, если файла нет |
-| `create 0640 www-data adm` | Создать новый файл с указанными правами |
-| `postrotate` ... `endscript` | Команды после ротации (сигнал nginx перечитать файлы) |
-
-### Структура после ротации
-
-```
-/var/log/nginx/
-├── access.log            # текущий лог
-├── access.log.1          # вчерашний (ещё не сжат)
-├── access.log.2.gz       # позавчерашний (сжат)
-├── access.log.3.gz       # три дня назад
-└── ...
-```
-
-### Ручной запуск ротации
+### Активация сайта
 
 ```bash
-sudo logrotate -f /etc/logrotate.d/nginx
+sudo ln -s /etc/nginx/sites-available/wordpress /etc/nginx/sites-enabled/
+sudo rm /etc/nginx/sites-enabled/default  # Удаляем дефолтный сайт
+sudo nginx -t                              # Проверка конфигурации
+sudo systemctl reload nginx                # Применение изменений
 ```
 
 ---
 
-## 7. Практика: анализируем логи WordPress
+## 4. Установка PHP-FPM
 
-### Шаг 1. Смотрим системный журнал
+### Установка PHP и модулей
 
 ```bash
-# Ошибки nginx за сегодня
-journalctl -u nginx -p err --since today
-
-# Ошибки PHP-FPM за сегодня
-journalctl -u php*-fpm -p err --since today
-
-# Ошибки MariaDB за сегодня
-journalctl -u mariadb -p err --since today
+sudo apt install php-fpm php-mysql php-xml php-mbstring php-curl php-gd php-intl php-zip -y
 ```
 
-### Шаг 2. Генерируем трафик для анализа
+### Проверка статуса PHP
 
 ```bash
-curl -s http://localhost > /dev/null
-curl -s http://localhost/wp-login.php > /dev/null
-curl -s http://localhost/not-found-page > /dev/null
-curl -s http://localhost/readme.html > /dev/null
-curl -s http://localhost/wp-admin > /dev/null
+systemctl status php*-fpm
 ```
 
-### Шаг 3. Анализируем access.log
+### Взаимодействие nginx и PHP-FPM
+
+Общение происходит через **Unix-сокет** `/run/php/php-fpm.sock`, что быстрее, чем через TCP-порт.
+
+### Тест PHP
 
 ```bash
-# Сколько запросов
-sudo wc -l /var/log/nginx/access.log
-
-# Топ запрашиваемых URL
-sudo awk '{print $7}' /var/log/nginx/access.log | sort | uniq -c | sort -rn | head
-
-# Коды ответов
-sudo awk '{print $9}' /var/log/nginx/access.log | sort | uniq -c | sort -rn
-
-# Есть ли 404?
-sudo awk '$9 == 404 {print $7}' /var/log/nginx/access.log
-```
-
-### Шаг 4. Проверяем error.log
-
-```bash
-sudo tail -10 /var/log/nginx/error.log
-```
-
-### Шаг 5. Проверяем ротацию
-
-```bash
-ls -la /var/log/nginx/
-cat /etc/logrotate.d/nginx
+echo '<?php phpinfo(); ?>' | sudo tee /var/www/wordpress/info.php
+curl http://localhost/info.php
+sudo rm /var/www/wordpress/info.php # Обязательно удалите после проверки!
 ```
 
 ---
 
-## 8. Справочник команд
+## 5. Установка и настройка MariaDB
 
-### journalctl
+### Установка и защита MariaDB
+
+```bash
+sudo apt install mariadb-server -y
+sudo mysql_secure_installation
+```
+
+**Рекомендации при `mysql_secure_installation`:**
+- Для root оставить аутентификацию через unix_socket
+- Удалить анонимных пользователей
+- Запретить удаленный root-доступ
+
+### Создание базы данных и пользователя
+
+```bash
+sudo mariadb
+```
+
+```sql
+CREATE DATABASE wordpress CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'wpuser'@'localhost' IDENTIFIED BY 'SecurePassword123';
+GRANT ALL PRIVILEGES ON wordpress.* TO 'wpuser'@'localhost';
+FLUSH PRIVILEGES;
+EXIT;
+```
+
+> **Важно:** Замените `SecurePassword123` на свой надёжный пароль.
+
+---
+
+## 6. Установка и настройка WordPress
+
+### Скачивание и распаковка
+
+```bash
+cd /tmp
+curl -LO https://wordpress.org/latest.tar.gz
+sudo tar -xzf latest.tar.gz -C /var/www/
+```
+
+### Настройка прав доступа WordPress
+
+```bash
+sudo chown -R www-data:www-data /var/www/wordpress
+sudo find /var/www/wordpress -type d -exec chmod 755 {} \;
+sudo find /var/www/wordpress -type f -exec chmod 644 {} \;
+sudo chmod -R g+w /var/www/wordpress/wp-content
+```
+
+### Настройка wp-config.php
+
+```bash
+cd /var/www/wordpress
+sudo cp wp-config-sample.php wp-config.php
+sudo nano wp-config.php
+```
+
+**Внесите данные о базе данных:**
+
+```php
+define( 'DB_NAME', 'wordpress' );
+define( 'DB_USER', 'wpuser' );
+define( 'DB_PASSWORD', 'SecurePassword123' );
+define( 'DB_HOST', 'localhost' );
+```
+
+**Сгенерируйте и вставьте уникальные ключи (соли):**
+
+```bash
+curl -s https://api.wordpress.org/secret-key/1.1/salt/
+```
+
+Скопируйте вывод и замените соответствующие строки в `wp-config.php`.
+
+---
+
+## 7. Справочник команд
+
+### nginx (команды)
 
 | Команда | Описание |
-|---------|----------|
-| `journalctl -p err` | Только ошибки и критичнее |
-| `journalctl -p warning` | Предупреждения и критичнее |
-| `journalctl -b` | Логи с момента загрузки |
-| `journalctl -u nginx` | Логи конкретного сервиса |
-| `journalctl --since "1 hour ago"` | За последний час |
-| `journalctl --disk-usage` | Размер журнала на диске |
-| `sudo journalctl --vacuum-size=500M` | Ограничить размер 500 МБ |
-| `sudo journalctl --vacuum-time=7d` | Удалить записи старше 7 дней |
+|:---|:---|
+| `sudo systemctl status nginx` | Статус сервиса |
+| `sudo systemctl reload nginx` | Перезагрузка конфигурации без остановки |
+| `sudo nginx -t` | Проверка синтаксиса конфигурации |
+| `sudo ss -tlnp \| grep :80` | Проверка, слушает ли nginx порт 80 |
 
-### Анализ логов nginx
+### PHP-FPM (команды)
 
 | Команда | Описание |
-|---------|----------|
-| `sudo wc -l /var/log/nginx/access.log` | Количество запросов |
-| `sudo awk '{print $1}' access.log \| sort \| uniq -c \| sort -rn \| head` | Топ IP-адресов |
-| `sudo awk '{print $9}' access.log \| sort \| uniq -c \| sort -rn` | Распределение по кодам |
-| `sudo awk '$9 == 404 {print $7}' access.log` | Запросы с ошибкой 404 |
-| `sudo awk '{print $7}' access.log \| sort \| uniq -c \| sort -rn \| head` | Популярные страницы |
-| `sudo tail -20 /var/log/nginx/error.log` | Последние ошибки |
-| `sudo grep -i 'bot' access.log` | Поиск ботов |
+|:---|:---|
+| `sudo systemctl status php*-fpm` | Статус процесса PHP-FPM |
+| `sudo systemctl restart php*-fpm` | Перезапуск обработчика PHP |
+
+### MariaDB (команды)
+
+| Команда | Описание |
+|:---|:---|
+| `sudo mariadb` | Подключение к БД от root (через сокет) |
+| `mariadb -u wpuser -p wordpress` | Подключение к базе от пользователя |
+| `sudo mysql_secure_installation` | Защита установки MariaDB |
+
+### WordPress (команды)
+
+| Команда | Описание |
+|:---|:---|
+| `curl -LO https://wordpress.org/latest.tar.gz` | Скачать последнюю версию WP |
+| `curl -s https://api.wordpress.org/secret-key/1.1/salt/` | Генерация солей для wp-config.php |
 
 ---
 
-## 9. Итоги
+## 8. Итоги
 
-В этой главе вы:
+**Что нужно запомнить:**
 
-- ✅ расширили знания о `journalctl`: приоритеты сообщений, фильтрация ошибок, управление размером журнала;
-- ✅ разобрали формат логов nginx (access.log и error.log);
-- ✅ научились анализировать access.log с помощью coreutils: находить самые активные IP, популярные страницы, коды ошибок;
-- ✅ освоили диагностику по error.log: поиск ошибок прав доступа, отсутствующих файлов и проблем с PHP-FPM;
-- ✅ познакомились с ротацией логов (logrotate).
+1. **Архитектура LEMP:** nginx (веб-сервер) → PHP-FPM (обработчик PHP) → MariaDB (база данных)
 
-**📌 Ключевые команды для запоминания:**
+2. **Последовательность установки:**
+   ```bash
+   nginx → PHP-FPM → MariaDB → WordPress
+   ```
 
-```bash
-# Смотреть ошибки в реальном времени
-sudo journalctl -u nginx -f
+3. **Ключевые порты:**
+   - `80` — HTTP (nginx)
+   - `3306` — MariaDB (обычно закрыт для внешнего доступа)
 
-# Найти самых активных посетителей
-sudo awk '{print $1}' /var/log/nginx/access.log | sort | uniq -c | sort -rn | head
+4. **Важные пути:**
+   - Конфиги nginx: `/etc/nginx/sites-available/` и `/etc/nginx/sites-enabled/`
+   - Корень сайта: `/var/www/wordpress`
+   - Сокет PHP-FPM: `/run/php/php-fpm.sock`
 
-# Проверить последние ошибки
-sudo tail -20 /var/log/nginx/error.log
+5. **Обязательные проверки после настройки:**
+   ```bash
+   sudo nginx -t                    # проверить конфигурацию nginx
+   sudo systemctl reload nginx      # применить изменения
+   curl -I http://localhost         # проверить HTTP-ответ
+   ```
 
-# Узнать размер логов
-sudo journalctl --disk-usage && du -sh /var/log/nginx/
-```
+**📌 Ключевое правило администратора:** После каждого изменения конфигурации nginx сначала выполняйте `sudo nginx -t`, и только потом `sudo systemctl reload nginx`. Ошибка в конфигурации может положить весь веб-сервер!
 
 ---
 
-**📌 Часть II завершена.** Вы прошли путь от установки пакетов до полноценного веб-сервера с мониторингом.
+**📌 Готово.** Вы настроили полноценный веб-сервер для WordPress с нуля.
